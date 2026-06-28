@@ -69,7 +69,35 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
 
-    
+    - name: 剪除一加源码中的残缺 Kconfig 引用
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        echo "[+] 开始对 Kconfig 引用进行外科手术式清理..."
+        
+        # 遍历所有 Kconfig 配置文件
+        find . -name "Kconfig" -type f | while read -r kfile; do
+            mv "$kfile" "$kfile.bak"
+            # 逐行读取，并剔除 Windows 换行符 (\r) 的潜在干扰
+            while IFS= read -r line || [ -n "$line" ]; do
+                clean_line=$(echo "$line" | tr -d '\r')
+                
+                # 匹配所有以 source 开头的配置引用行
+                if echo "$clean_line" | grep -q -E '^[[:space:]]*source[[:space:]]+'; then
+                    # 精准提取引用的内核路径
+                    kpath=$(echo "$clean_line" | sed -E 's/^[[:space:]]*source[[:space:]]+"?([^[:space:]"#]+)"?.*/\1/')
+                    
+                    # 如果该引用文件在本地根本不存在，直接执行强行剪除
+                    if [ -n "$kpath" ] && [ ! -f "$kpath" ]; then
+                        echo "[-] 发现丢失的源文件: $kpath (在 $kfile 中引用)，已自动剪除该死引用"
+                        echo "# $line" >> "$kfile"
+                        continue
+                    fi
+                fi
+                echo "$line" >> "$kfile"
+            done < "$kfile.bak"
+            rm "$kfile.bak"
+        done
+        echo "[+] 全局残缺引用外科手术清理完成！"
 
     - name: Download source boot image
       if: env.BUILD_BOOT_IMG == 'true'
@@ -167,20 +195,25 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export KBUILD_BUILD_HOST=Github-Action
         export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)  
-        if [ ${{ env.USE_GCC }} = true ]; then
+        if [ ${{ env.USE_GCC }} = true ];
+        then
             echo "ENABLE_CCACHE=flase" >> $GITHUB_ENV
             export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/aarch64-linux-android-4.9/bin:$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/arm-linux-androideabi-4.9/bin:$PATH
             make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- ${{ env.KERNEL_CONFIG }}
+            make O=out ARCH=${{ env.ARCH }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- olddefconfig
             make -j$(nproc --all) O=out ARCH=${{ env.ARCH }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-  
         fi
         
-        if [ ${{ env.ENABLE_CCACHE }} = true ]; then
+        if [ ${{ env.ENABLE_CCACHE }} = true ];
+        then
             export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_clang/clang-r383902b-11.0.2/bin:$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/aarch64-linux-android-4.9/bin:$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/arm-linux-androideabi-4.9/bin:$PATH
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- ${{ env.KERNEL_CONFIG }}
+            make CC="ccache clang" O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- olddefconfig
             make -j$(nproc --all) CC="ccache clang" O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- 
         else
             export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_clang/clang-r383902b-11.0.2/bin:$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/aarch64-linux-android-4.9/bin:$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/google_gcc/arm-linux-androideabi-4.9/bin:$PATH
             make -j$(nproc --all) CC=clang O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- ${{ env.KERNEL_CONFIG }}
+            make CC=clang O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- olddefconfig
             make -j$(nproc --all) CC=clang O=out ARCH=${{ env.ARCH }} ${{ env.CUSTOM_CMDS }} ${{ env.EXTRA_CMDS }} CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-  
         fi
 
