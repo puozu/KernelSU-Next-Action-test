@@ -76,10 +76,12 @@ jobs:
             if [ ! -f "$kconfig_path" ]; then
                 echo "[!] 发现一加官方丢失的文件: $kconfig_path，已自动补齐伪文件"
                 dir_path="$(dirname "$kconfig_path")"
-                # 如果发现被一加用同名普通文件占了坑，强行删掉，防止 mkdir 失败
-                if [ -e "$dir_path" ] && [ ! -d "$dir_path" ]; then
+                
+                # 【终极排雷】如果是死/活软链接(-L)或者普通文件(-f)，一律执行强行抹除占坑
+                if [ -L "$dir_path" ] || [ -f "$dir_path" ]; then
                     rm -rf "$dir_path"
                 fi
+                
                 mkdir -p "$dir_path"
                 touch "$kconfig_path"
             fi
