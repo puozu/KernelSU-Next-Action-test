@@ -69,27 +69,35 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone ${{ env.KERNEL_SOURCE }} -b ${{ env.KERNEL_SOURCE_BRANCH }} android-kernel --depth=1
 
-    - name: 自动补齐一加源码残缺文件
+    - name: 剪除一加源码中的残缺 Kconfig 引用
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        echo "[+] 开始执行全局无死角排雷..."
+        echo "[+] 开始对 Kconfig 引用进行外科手术式清理..."
         
-        # 全局扫描所有被引用的 Kconfig 路径，完美兼容带引号/不带引号/带尾部注释的各种一加奇葩写法
-        grep -r "source " . | grep Kconfig | sed -E 's/.*source[[:space:]]+"?([^"[:space:]#]+)"?.*/\1/' | while read -r kconfig_path; do
-            if [ -n "$kconfig_path" ] && [ ! -f "$kconfig_path" ]; then
-                echo "[!] 发现一加官方丢失的文件: $kconfig_path，正在自动补齐..."
-                dir_path="$(dirname "$kconfig_path")"
+        # 遍历所有 Kconfig 配置文件
+        find . -name "Kconfig" -type f | while read -r kfile; do
+            mv "$kfile" "$kfile.bak"
+            # 逐行读取，并剔除 Windows 换行符 (\r) 的潜在干扰
+            while IFS= read -r line || [ -n "$line" ]; do
+                clean_line=$(echo "$line" | tr -d '\r')
                 
-                # 【关键核心】只要该路径目前“不是一个有效目录”（不管是死链接、活链接还是普通文件占坑），一律强行抹除
-                if [ ! -d "$dir_path" ]; then
-                    rm -rf "$dir_path"
+                # 匹配所有以 source 开头的配置引用行
+                if echo "$clean_line" | grep -q -E '^[[:space:]]*source[[:space:]]+'; then
+                    # 精准提取引用的内核路径
+                    kpath=$(echo "$clean_line" | sed -E 's/^[[:space:]]*source[[:space:]]+"?([^[:space:]"#]+)"?.*/\1/')
+                    
+                    # 如果该引用文件在本地根本不存在，直接执行强行剪除
+                    if [ -n "$kpath" ] && [ ! -f "$kpath" ]; then
+                        echo "[-] 发现丢失的源文件: $kpath (在 $kfile 中引用)，已自动剪除该死引用"
+                        echo "# $line" >> "$kfile"
+                        continue
+                    fi
                 fi
-                
-                mkdir -p "$dir_path"
-                touch "$kconfig_path"
-            fi
+                echo "$line" >> "$kfile"
+            done < "$kfile.bak"
+            rm "$kfile.bak"
         done
-        echo "[+] 全局残缺文件本地虚拟补齐完成！"
+        echo "[+] 全局残缺引用外科手术清理完成！"
 
     - name: Download source boot image
       if: env.BUILD_BOOT_IMG == 'true'
