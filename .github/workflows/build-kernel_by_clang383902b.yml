@@ -72,28 +72,24 @@ jobs:
     - name: 自动补齐一加源码残缺文件
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        echo "[+] 开始执行无死角兼容性全局排雷..."
+        echo "[+] 开始执行全局无死角排雷..."
         
-        # 1. 全局查找所有 Kconfig 文件，通过更强健的正则兼容带引号/不带引号及带尾部注释的各类 source 变体
-        find . -name "Kconfig" -type f | while read -r kconfig_file; do
-            sed -n -E 's/^[[:space:]]*source[[:space:]]+"?([^"[:space:]]+)"?.*/\1/p' "$kconfig_file" | while read -r kconfig_path; do
+        # 全局扫描所有被引用的 Kconfig 路径，完美兼容带引号/不带引号/带尾部注释的各种一加奇葩写法
+        grep -r "source " . | grep Kconfig | sed -E 's/.*source[[:space:]]+"?([^"[:space:]#]+)"?.*/\1/' | while read -r kconfig_path; do
+            if [ -n "$kconfig_path" ] && [ ! -f "$kconfig_path" ]; then
+                echo "[!] 发现一加官方丢失的文件: $kconfig_path，正在自动补齐..."
+                dir_path="$(dirname "$kconfig_path")"
                 
-                # 2. 检查提取到的路径，如果实际文件不存在则进行智能补齐
-                if [ -n "$kconfig_path" ] && [ ! -f "$kconfig_path" ]; then
-                    echo "[!] 发现一加丢失的残缺依赖: $kconfig_path"
-                    dir_path="$(dirname "$kconfig_path")"
-                    
-                    # 清理可能存在的死软链接、普通同名文件等恶意占坑物
-                    if [ ! -d "$dir_path" ]; then
-                        rm -rf "$dir_path"
-                    fi
-                    
-                    mkdir -p "$dir_path"
-                    touch "$kconfig_path"
+                # 【关键核心】只要该路径目前“不是一个有效目录”（不管是死链接、活链接还是普通文件占坑），一律强行抹除
+                if [ ! -d "$dir_path" ]; then
+                    rm -rf "$dir_path"
                 fi
-            done
+                
+                mkdir -p "$dir_path"
+                touch "$kconfig_path"
+            fi
         done
-        echo "[+] 全局残缺依赖文件本地虚拟补齐完成！"
+        echo "[+] 全局残缺文件本地虚拟补齐完成！"
 
     - name: Download source boot image
       if: env.BUILD_BOOT_IMG == 'true'
